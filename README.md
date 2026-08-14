@@ -56,9 +56,16 @@ $ cd tests/reservation_resource
 
 Remember to configure the provider with your environment information
 ```shell
-export AZUREIPAM_TOKEN="eyJ0eXAi......"
 export AZUREIPAM_API_URL="https://myazureipam.azurewebsites.net"
+export AZUREIPAM_APPLICATION_ID="<IPAM_ENGINE_APPLICATION_ID>"
 ```
+
+Authentication uses Azure's default credential chain and automatically renews
+access tokens. For local development, sign in with `az login`. On a build agent,
+use workload identity, managed identity, or service-principal environment
+variables (`AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, and `AZURE_CLIENT_SECRET`). Set
+`AZURE_TOKEN_CREDENTIALS` to `dev`, `prod`, or a specific Azure credential name
+to restrict which credentials are attempted.
 
 And initialize the workspace and apply the sample configuration.
 

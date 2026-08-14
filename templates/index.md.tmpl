@@ -15,8 +15,17 @@ The provider makes use of the IPAM REST API to manage CIDR range reservations in
 
 ## Example Usage
 
-Do not keep your authentication token in HCL, use Terraform environment variables or generate as part of the deploymenet process.
+Configure `ipam_application_id` to use Azure's default credential chain. Access tokens are
+renewed automatically. The chain supports service-principal environment
+credentials, workload identity, managed identity, Azure CLI, Azure Developer
+CLI, and Azure PowerShell.
 
 {{ tffile (printf "examples/provider/provider.tf")}}
+
+For local development, run `az login`. Service-principal authentication uses
+`AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, and `AZURE_CLIENT_SECRET`. On an Azure
+build agent, enable workload or managed identity and grant that identity access
+to the Azure IPAM application. `AZURE_TOKEN_CREDENTIALS` can restrict the chain
+to `dev`, `prod`, or a specific Azure credential type.
 
 {{ .SchemaMarkdown | trimspace }}

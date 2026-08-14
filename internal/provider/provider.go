@@ -6,6 +6,8 @@ import (
 
 	ipamclient "terraform-provider-azureipam/ipamclient"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
+	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/hashicorp/terraform-plugin-framework/datasource"
 	"github.com/hashicorp/terraform-plugin-framework/function"
 	"github.com/hashicorp/terraform-plugin-framework/path"
@@ -36,13 +38,14 @@ type azureIpamProvider struct {
 	// version is set to the provider version on release, "dev" when the
 	// provider is built and ran locally, and "test" when running acceptance
 	// testing.
-	version string
+	version           string
+	credentialFactory func() (azcore.TokenCredential, error)
 }
 
 // azureIpamProviderModel describes the provider data model.
 type azureIpamProviderModel struct {
-	ApiUrl                      types.String `tfsdk:"api_url"`
-	Token                       types.String `tfsdk:"token"`
+	ApiUrl                      types.String `tfsdk:"ipam_api_url"`
+	ApplicationId               types.String `tfsdk:"ipam_application_id"`
 	SkipCertificateVerification types.Bool   `tfsdk:"skip_cert_verification"`
 }
 
@@ -57,14 +60,13 @@ func (p *azureIpamProvider) Schema(ctx context.Context, req provider.SchemaReque
 	resp.Schema = schema.Schema{
 		MarkdownDescription: "Terraform provider to manage reservations in Azure IPAM solution through REST API.",
 		Attributes: map[string]schema.Attribute{
-			"api_url": schema.StringAttribute{
+			"ipam_api_url": schema.StringAttribute{
 				MarkdownDescription: "The root url of the APIM REST API solution to be used, without the /api url suffix. Must be also assigned at AZUREIPAM_API_URL environment variable.",
 				Optional:            true,
 			},
-			"token": schema.StringAttribute{
-				MarkdownDescription: "The bearer token to be used when authenticating to the API. Must be also assigned at AZUREIPAM_TOKEN environment variable.",
+			"ipam_application_id": schema.StringAttribute{
+				MarkdownDescription: "The Azure AD application (client) ID of the Azure IPAM engine app registration. Used to construct the OAuth scope `api://<application_id>/.default`. May also be set with the `AZUREIPAM_APPLICATION_ID` environment variable.",
 				Optional:            true,
-				Sensitive:           true,
 			},
 			"skip_cert_verification": schema.BoolAttribute{
 				MarkdownDescription: "Specifies it the certificate chain validation must be skipped calling the API endpoint. Default to false.",
@@ -89,19 +91,14 @@ func (p *azureIpamProvider) Configure(ctx context.Context, req provider.Configur
 	// attributes, it must be a known value.
 	if config.ApiUrl.IsUnknown() {
 		resp.Diagnostics.AddAttributeError(
-			path.Root("api_url"),
+			path.Root("ipam_api_url"),
 			"Unknown AzureIpam API url",
 			"The provider cannot create the AzureIpam API client as there is an unknown configuration value for the AzureIpam API host. "+
 				"Either target apply the source of the value first, set the value statically in the configuration, or use the AZUREIPAM_API_URL environment variable.",
 		)
 	}
-	if config.Token.IsUnknown() {
-		resp.Diagnostics.AddAttributeError(
-			path.Root("token"),
-			"Unknown AzureIpam API access token",
-			"The provider cannot create the AzureIpam API client as there is an unknown configuration value for the AzureIpam API access token. "+
-				"Either target apply the source of the value first, set the value statically in the configuration, or use the AZUREIPAM_TOKEN environment variable.",
-		)
+	if config.ApplicationId.IsUnknown() {
+		resp.Diagnostics.AddAttributeError(path.Root("ipam_application_id"), "Unknown AzureIpam application ID", "The provider cannot configure Azure Identity with an unknown application ID.")
 	}
 	if resp.Diagnostics.HasError() {
 		return
@@ -110,32 +107,30 @@ func (p *azureIpamProvider) Configure(ctx context.Context, req provider.Configur
 	// Default values to environment variables, but override
 	// with Terraform configuration value if set.
 	apiUrl := os.Getenv("AZUREIPAM_API_URL")
-	token := os.Getenv("AZUREIPAM_TOKEN")
+	applicationId := os.Getenv("AZUREIPAM_APPLICATION_ID")
 	if !config.ApiUrl.IsNull() {
 		apiUrl = config.ApiUrl.ValueString()
 	}
-	if !config.Token.IsNull() {
-		token = config.Token.ValueString()
+	if !config.ApplicationId.IsNull() {
+		applicationId = config.ApplicationId.ValueString()
 	}
 
 	// If any of the expected configurations are missing, return
 	// errors with provider-specific guidance.
 	if apiUrl == "" {
 		resp.Diagnostics.AddAttributeError(
-			path.Root("api_url"),
+			path.Root("ipam_api_url"),
 			"Missing AzureIpam API url",
 			"The provider cannot create the AzureIpam API client as there is a missing or empty value for the AzureIpam API url. "+
 				"Set the url value in the configuration or use the AZUREIPAM_API_URL environment variable. "+
 				"If either is already set, ensure the value is not empty.",
 		)
 	}
-	if token == "" {
+	if applicationId == "" {
 		resp.Diagnostics.AddAttributeError(
-			path.Root("token"),
-			"Missing AzureIpam API access token",
-			"The provider cannot create the AzureIpam API client as there is a missing or empty value for the AzureIpam API access token. "+
-				"Set the access token value in the configuration or use the AZUREIPAM_TOKEN environment variable. "+
-				"If either is already set, ensure the value is not empty.",
+			path.Root("ipam_application_id"),
+			"Missing AzureIpam application ID",
+			"Set the Azure AD application ID in the provider configuration or with the AZUREIPAM_APPLICATION_ID environment variable.",
 		)
 	}
 	if resp.Diagnostics.HasError() {
@@ -152,13 +147,22 @@ func (p *azureIpamProvider) Configure(ctx context.Context, req provider.Configur
 	}
 
 	ctx = tflog.SetField(ctx, "azureipam_api_url", apiUrl)
-	ctx = tflog.SetField(ctx, "azureipam_token", token)
 	ctx = tflog.SetField(ctx, "azureipam_skip_cert_verification", skipCertVerification)
-	ctx = tflog.MaskFieldValuesWithFieldKeys(ctx, "azureipam_token")
 
 	tflog.Debug(ctx, "Creating AzureIpam client")
 	// Create a new AzureIpam client using the configuration values
-	client, err := ipamclient.NewClient(&apiUrl, &token, skipCertVerification)
+	credentialFactory := p.credentialFactory
+	if credentialFactory == nil {
+		credentialFactory = func() (azcore.TokenCredential, error) {
+			return azidentity.NewDefaultAzureCredential(nil)
+		}
+	}
+	credential, err := credentialFactory()
+	var client *ipamclient.Client
+	if err == nil {
+		scope := "api://" + applicationId + "/.default"
+		client, err = ipamclient.NewClient(apiUrl, credential, scope, skipCertVerification)
+	}
 	if err != nil {
 		resp.Diagnostics.AddError(
 			"Unable to Create AzureIpam API Client",

@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/rand"
 	"net/http"
 	"strings"
+	"time"
 )
 
 // internal Models
@@ -26,6 +28,8 @@ type reservationBlockCidrRequest struct {
 	Cidr        string  `json:"cidr"`
 	Description *string `json:"desc"`
 }
+
+const maxRetries = 3
 
 // GetReservations - Returns all existing reservations by space and block
 func (c *Client) GetReservations(space, block string, includeSettled bool) (*[]Reservation, error) {
@@ -95,6 +99,9 @@ func (c *Client) GetReservation(space string, block string, id string) (*Reserva
 
 // CreateReservation - Create new reservation
 func (c *Client) CreateReservation(space string, blocks []string, description *string, size *int32, specific_cidr *string, reverseSearch bool, smallestCidr bool) (*Reservation, error) {
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
+
 	//validate params
 	if size == nil && specific_cidr == nil {
 		return nil, errors.New("at least one of size or specific_cidr must be specified to create a reservation")
@@ -160,10 +167,27 @@ func (c *Client) CreateReservation(space string, blocks []string, description *s
 		return nil, errors.New("at least one block must be specified")
 	}
 
-	//Perform request
-	response, err := c.doRequest(req)
-	if err != nil {
-		return nil, err
+	//Perform request with retry on 500
+	var response []byte
+	var err error
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			base := time.Duration(attempt) * 2 * time.Second
+			jitter := time.Duration(rand.Int63n(int64(time.Second)))
+			time.Sleep(base + jitter)
+			// Re-build the request body since the body reader is exhausted after the first attempt
+			req, err = rebuildReservationRequest(c.HostURL, space, blocks, description, size, specific_cidr, reverseSearch, smallestCidr)
+			if err != nil {
+				return nil, err
+			}
+		}
+		response, err = c.doRequest(req)
+		if err == nil {
+			break
+		}
+		if !isRetryable(err) || attempt == maxRetries {
+			return nil, err
+		}
 	}
 
 	//process response
@@ -176,8 +200,43 @@ func (c *Client) CreateReservation(space string, blocks []string, description *s
 	return &reservation, nil
 }
 
+// isRetryable returns true if the error is a transient IPAM API error worth retrying.
+func isRetryable(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return len(msg) >= 10 && (msg[:10] == "status: 500" || msg[:10] == "status: 403")
+}
+
+// rebuildReservationRequest re-creates the *http.Request (with a fresh body) for retry attempts.
+func rebuildReservationRequest(hostURL, space string, blocks []string, description *string, size *int32, specificCidr *string, reverseSearch, smallestCidr bool) (*http.Request, error) {
+	if len(blocks) == 1 {
+		if specificCidr != nil {
+			rb, err := json.Marshal(&reservationBlockCidrRequest{Cidr: *specificCidr, Description: description})
+			if err != nil {
+				return nil, err
+			}
+			return http.NewRequest("POST", fmt.Sprintf("%s/api/spaces/%s/blocks/%s/reservations", hostURL, space, blocks[0]), strings.NewReader(string(rb)))
+		}
+		rb, err := json.Marshal(&reservationBlockSizeRequest{Size: *size, Description: description, ReverseSearch: reverseSearch, SmallestCidr: smallestCidr})
+		if err != nil {
+			return nil, err
+		}
+		return http.NewRequest("POST", fmt.Sprintf("%s/api/spaces/%s/blocks/%s/reservations", hostURL, space, blocks[0]), strings.NewReader(string(rb)))
+	}
+	rb, err := json.Marshal(&reservationSpaceRequest{Size: size, Blocks: blocks, Description: description, ReverseSearch: reverseSearch, SmallestCidr: smallestCidr})
+	if err != nil {
+		return nil, err
+	}
+	return http.NewRequest("POST", fmt.Sprintf("%s/api/spaces/%s/reservations", hostURL, space), strings.NewReader(string(rb)))
+}
+
 // DeleteReservation - Deletes a reservation
 func (c *Client) DeleteReservation(space, block, id string) error {
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
+
 	//construct body
 	request := [1]string{id}
 	rb, err := json.Marshal(request)
@@ -190,9 +249,26 @@ func (c *Client) DeleteReservation(space, block, id string) error {
 	if err != nil {
 		return err
 	}
-	response, err := c.doRequest(req)
-	if err != nil {
-		return err
+
+	//Perform request with retry on 500
+	var response []byte
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			base := time.Duration(attempt) * 2 * time.Second
+			jitter := time.Duration(rand.Int63n(int64(time.Second)))
+			time.Sleep(base + jitter)
+			req, err = http.NewRequest("DELETE", fmt.Sprintf("%s/api/spaces/%s/blocks/%s/reservations", c.HostURL, space, block), strings.NewReader(string(rb)))
+			if err != nil {
+				return err
+			}
+		}
+		response, err = c.doRequest(req)
+		if err == nil {
+			break
+		}
+		if !isRetryable(err) || attempt == maxRetries {
+			return err
+		}
 	}
 
 	//process response

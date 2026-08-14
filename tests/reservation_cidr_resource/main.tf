@@ -8,4 +8,4 @@ resource "azureipam_reservation_cidr" "new" {
 output "reservation" {
   value = azureipam_reservation_cidr.new
 }
- 
+
