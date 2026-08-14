@@ -44,8 +44,8 @@ type azureIpamProvider struct {
 
 // azureIpamProviderModel describes the provider data model.
 type azureIpamProviderModel struct {
-	ApiUrl                      types.String `tfsdk:"api_url"`
-	Scope                       types.String `tfsdk:"scope"`
+	ApiUrl                      types.String `tfsdk:"ipam_api_url"`
+	ApplicationId               types.String `tfsdk:"ipam_application_id"`
 	SkipCertificateVerification types.Bool   `tfsdk:"skip_cert_verification"`
 }
 
@@ -60,12 +60,12 @@ func (p *azureIpamProvider) Schema(ctx context.Context, req provider.SchemaReque
 	resp.Schema = schema.Schema{
 		MarkdownDescription: "Terraform provider to manage reservations in Azure IPAM solution through REST API.",
 		Attributes: map[string]schema.Attribute{
-			"api_url": schema.StringAttribute{
+			"ipam_api_url": schema.StringAttribute{
 				MarkdownDescription: "The root url of the APIM REST API solution to be used, without the /api url suffix. Must be also assigned at AZUREIPAM_API_URL environment variable.",
 				Optional:            true,
 			},
-			"scope": schema.StringAttribute{
-				MarkdownDescription: "The Azure IPAM application scope used with Azure Identity authentication, typically api://<application-id>/.default. May also be set with AZUREIPAM_SCOPE.",
+			"ipam_application_id": schema.StringAttribute{
+				MarkdownDescription: "The Azure AD application (client) ID of the Azure IPAM engine app registration. Used to construct the OAuth scope `api://<application_id>/.default`. May also be set with the `AZUREIPAM_APPLICATION_ID` environment variable.",
 				Optional:            true,
 			},
 			"skip_cert_verification": schema.BoolAttribute{
@@ -91,14 +91,14 @@ func (p *azureIpamProvider) Configure(ctx context.Context, req provider.Configur
 	// attributes, it must be a known value.
 	if config.ApiUrl.IsUnknown() {
 		resp.Diagnostics.AddAttributeError(
-			path.Root("api_url"),
+			path.Root("ipam_api_url"),
 			"Unknown AzureIpam API url",
 			"The provider cannot create the AzureIpam API client as there is an unknown configuration value for the AzureIpam API host. "+
 				"Either target apply the source of the value first, set the value statically in the configuration, or use the AZUREIPAM_API_URL environment variable.",
 		)
 	}
-	if config.Scope.IsUnknown() {
-		resp.Diagnostics.AddAttributeError(path.Root("scope"), "Unknown AzureIpam API scope", "The provider cannot configure Azure Identity with an unknown API scope.")
+	if config.ApplicationId.IsUnknown() {
+		resp.Diagnostics.AddAttributeError(path.Root("ipam_application_id"), "Unknown AzureIpam application ID", "The provider cannot configure Azure Identity with an unknown application ID.")
 	}
 	if resp.Diagnostics.HasError() {
 		return
@@ -107,30 +107,30 @@ func (p *azureIpamProvider) Configure(ctx context.Context, req provider.Configur
 	// Default values to environment variables, but override
 	// with Terraform configuration value if set.
 	apiUrl := os.Getenv("AZUREIPAM_API_URL")
-	scope := os.Getenv("AZUREIPAM_SCOPE")
+	applicationId := os.Getenv("AZUREIPAM_APPLICATION_ID")
 	if !config.ApiUrl.IsNull() {
 		apiUrl = config.ApiUrl.ValueString()
 	}
-	if !config.Scope.IsNull() {
-		scope = config.Scope.ValueString()
+	if !config.ApplicationId.IsNull() {
+		applicationId = config.ApplicationId.ValueString()
 	}
 
 	// If any of the expected configurations are missing, return
 	// errors with provider-specific guidance.
 	if apiUrl == "" {
 		resp.Diagnostics.AddAttributeError(
-			path.Root("api_url"),
+			path.Root("ipam_api_url"),
 			"Missing AzureIpam API url",
 			"The provider cannot create the AzureIpam API client as there is a missing or empty value for the AzureIpam API url. "+
 				"Set the url value in the configuration or use the AZUREIPAM_API_URL environment variable. "+
 				"If either is already set, ensure the value is not empty.",
 		)
 	}
-	if scope == "" {
+	if applicationId == "" {
 		resp.Diagnostics.AddAttributeError(
-			path.Root("scope"),
-			"Missing AzureIpam API scope",
-			"Set the Azure IPAM application scope in the provider configuration or with AZUREIPAM_SCOPE.",
+			path.Root("ipam_application_id"),
+			"Missing AzureIpam application ID",
+			"Set the Azure AD application ID in the provider configuration or with the AZUREIPAM_APPLICATION_ID environment variable.",
 		)
 	}
 	if resp.Diagnostics.HasError() {
@@ -160,6 +160,7 @@ func (p *azureIpamProvider) Configure(ctx context.Context, req provider.Configur
 	credential, err := credentialFactory()
 	var client *ipamclient.Client
 	if err == nil {
+		scope := "api://" + applicationId + "/.default"
 		client, err = ipamclient.NewClient(apiUrl, credential, scope, skipCertVerification)
 	}
 	if err != nil {

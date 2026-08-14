@@ -57,7 +57,7 @@ $ cd tests/reservation_resource
 Remember to configure the provider with your environment information
 ```shell
 export AZUREIPAM_API_URL="https://myazureipam.azurewebsites.net"
-export AZUREIPAM_SCOPE="api://<IPAM_ENGINE_APPLICATION_ID>/.default"
+export AZUREIPAM_APPLICATION_ID="<IPAM_ENGINE_APPLICATION_ID>"
 ```
 
 Authentication uses Azure's default credential chain and automatically renews

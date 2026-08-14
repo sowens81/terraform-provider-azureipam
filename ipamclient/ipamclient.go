@@ -20,6 +20,7 @@ type Client struct {
 	credential       azcore.TokenCredential
 	scope            string
 	tokenMu          sync.Mutex
+	writeMu          sync.Mutex
 	accessTokenValue string
 	expiresOn        time.Time
 }
@@ -37,7 +38,7 @@ func NewClient(host string, credential azcore.TokenCredential, scope string, ski
 	}
 	c := Client{
 		HostURL:    host,
-		HTTPClient: &http.Client{Timeout: 30 * time.Second, Transport: tr},
+		HTTPClient: &http.Client{Timeout: 10 * time.Second, Transport: tr},
 		credential: credential,
 		scope:      scope,
 	}

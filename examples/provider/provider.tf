@@ -9,15 +9,9 @@ terraform {
   }
 }
 
-# Replace with appropriate values for your AZURE IPAM implementation.
-locals {
-  ipam_url   = "https://myazureipam.azurewebsites.net"
-  ipam_apiId = "d47d5cd9-b599-4a6a-9d54-254565ff08de" #ApplicationId of the Engine Azure AD Application, see also the [IPAM deployment documentation](https://github.com/Azure/ipam/tree/main/docs/deployment)
-}
-
 # Configure the Azure IPAM provider
 provider "azureipam" {
-  api_url                = local.ipam_url
-  scope                  = "api://${local.ipam_apiId}/.default"
-  skip_cert_verification = true //ONLY recommended for development environments
+  ipam_api_url           = "https://myazureipam.azurewebsites.net"
+  ipam_application_id    = "xxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxx" #ApplicationId of the Engine Azure AD Application, see also the [IPAM deployment documentation](https://github.com/Azure/ipam/tree/main/docs/deployment)
+  skip_cert_verification = true                               //ONLY recommended for development environments
 }

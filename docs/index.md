@@ -15,7 +15,7 @@ The provider makes use of the IPAM REST API to manage CIDR range reservations in
 
 ## Example Usage
 
-Configure `scope` to use Azure's default credential chain. Access tokens are
+Configure `application_id` to use Azure's default credential chain. Access tokens are
 renewed automatically. The chain supports service-principal environment
 credentials, workload identity, managed identity, Azure CLI, Azure Developer
 CLI, and Azure PowerShell.
@@ -35,13 +35,13 @@ terraform {
 # Replace with appropriate values for your AZURE IPAM implementation.
 locals {
   ipam_url   = "https://myazureipam.azurewebsites.net"
-  ipam_apiId = "d47d5cd9-b599-4a6a-9d54-254565ff08de" #ApplicationId of the Engine Azure AD Application, see also the [IPAM deployment documentation](https://github.com/Azure/ipam/tree/main/docs/deployment)
+  ipam_app_id = "xxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxx" #ApplicationId of the Engine Azure AD Application, see also the [IPAM deployment documentation](https://github.com/Azure/ipam/tree/main/docs/deployment)
 }
 
 # Configure the Azure IPAM provider
 provider "azureipam" {
-  api_url                = local.ipam_url
-  scope                  = "api://${local.ipam_apiId}/.default"
+  ipam_api_url           = local.ipam_url
+  ipam_application_id    = local.ipam_app_id
   skip_cert_verification = true //ONLY recommended for development environments
 }
 ```
@@ -57,6 +57,6 @@ to `dev`, `prod`, or a specific Azure credential type.
 
 ### Optional
 
-- `api_url` (String) The root url of the APIM REST API solution to be used, without the /api url suffix. Must be also assigned at AZUREIPAM_API_URL environment variable.
-- `scope` (String) The Azure IPAM application scope used with Azure Identity authentication, typically api://<application-id>/.default. May also be set with AZUREIPAM_SCOPE.
+- `ipam_api_url` (String) The root url of the APIM REST API solution to be used, without the /api url suffix. Must be also assigned at AZUREIPAM_API_URL environment variable.
+- `ipam_application_id` (String) The Azure AD application (client) ID of the Azure IPAM engine app registration. Used to construct the OAuth scope `api://<application_id>/.default`. May also be set with the `AZUREIPAM_APPLICATION_ID` environment variable.
 - `skip_cert_verification` (Boolean) Specifies it the certificate chain validation must be skipped calling the API endpoint. Default to false.

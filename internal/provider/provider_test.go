@@ -17,8 +17,8 @@ const (
 	// such as updating the Makefile and running the testing through that tool.
 	testAccProviderConfig = `
 provider "azureipam" {
-  api_url = "https://mockedHost.azurewebsites.net"
-  scope = "api://test/.default"
+  ipam_api_url = "https://mockedHost.azurewebsites.net"
+  ipam_application_id = "test"
 }
 `
 )
