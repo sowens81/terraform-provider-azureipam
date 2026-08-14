@@ -1,10 +1,11 @@
 TEST?=$$(go list ./... | grep -v 'vendor')
-HOSTNAME=sowens81
-NAMESPACE=local
+HOSTNAME=registry.terraform.io
+NAMESPACE=sowens81
 NAME=azureipam
 BINARY=terraform-provider-${NAME}
 VERSION=2.0.0
-OS_ARCH=linux_amd64
+OS_ARCH?=$(shell go env GOOS)_$(shell go env GOARCH)
+INSTALL_DIR=${HOME}/.terraform.d/plugins/${HOSTNAME}/${NAMESPACE}/${NAME}/${VERSION}/${OS_ARCH}
 
 default: install
 
@@ -18,8 +19,8 @@ release:
 	goreleaser release --clean --snapshot --skip=sign,publish
 
 install: build
-	mkdir -p ~/.terraform.d/plugins/${HOSTNAME}/${NAMESPACE}/${NAME}/${VERSION}/${OS_ARCH}
-	mv ${BINARY} ~/.terraform.d/plugins/${HOSTNAME}/${NAMESPACE}/${NAME}/${VERSION}/${OS_ARCH}
+	mkdir -p ${INSTALL_DIR}
+	cp dist/${BINARY} ${INSTALL_DIR}/${BINARY}
 
 test:
 	go test -i $(TEST) || exit 1

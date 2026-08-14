@@ -15,7 +15,7 @@ The provider makes use of the IPAM REST API to manage CIDR range reservations in
 
 ## Example Usage
 
-Configure `application_id` to use Azure's default credential chain. Access tokens are
+Configure `ipam_application_id` to use Azure's default credential chain. Access tokens are
 renewed automatically. The chain supports service-principal environment
 credentials, workload identity, managed identity, Azure CLI, Azure Developer
 CLI, and Azure PowerShell.
@@ -32,17 +32,11 @@ terraform {
   }
 }
 
-# Replace with appropriate values for your AZURE IPAM implementation.
-locals {
-  ipam_url   = "https://myazureipam.azurewebsites.net"
-  ipam_app_id = "xxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxx" #ApplicationId of the Engine Azure AD Application, see also the [IPAM deployment documentation](https://github.com/Azure/ipam/tree/main/docs/deployment)
-}
-
 # Configure the Azure IPAM provider
 provider "azureipam" {
-  ipam_api_url           = local.ipam_url
-  ipam_application_id    = local.ipam_app_id
-  skip_cert_verification = true //ONLY recommended for development environments
+  ipam_api_url           = "https://myazureipam.azurewebsites.net"
+  ipam_application_id    = "xxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxx" #ApplicationId of the Engine Azure AD Application, see also the [IPAM deployment documentation](https://github.com/Azure/ipam/tree/main/docs/deployment)
+  skip_cert_verification = true                               //ONLY recommended for development environments
 }
 ```
 
